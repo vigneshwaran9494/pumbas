@@ -1,13 +1,35 @@
-import React from 'react';
-import ReactDOM from 'react-dom/client';
-import './index.css';
-import App from './App';
-import reportWebVitals from './reportWebVitals';
+import React from "react";
+import ReactDOM from "react-dom/client";
+import "./index.css";
+import App from "./App";
+import reportWebVitals from "./reportWebVitals";
+import { ThemeProvider } from "@material-tailwind/react";
+import { Provider } from "react-redux";
+import store from "./redux/store";
 
-const root = ReactDOM.createRoot(document.getElementById('root'));
+const root = ReactDOM.createRoot(document.getElementById("root"));
+
+const darkMode = true;
+
+const theme = {
+  typography: {
+    fontFamily: "Poppins, sans-serif",
+  },
+  colors: {
+    primary: darkMode ? "blue-gray-800" : "blue-500",
+    text: darkMode ? "white" : "black",
+  },
+  dark: darkMode, // Enables dark mode styles
+};
+
+
 root.render(
   <React.StrictMode>
-    <App />
+    <Provider store={store}>
+    <ThemeProvider value={theme}>
+      <App />
+    </ThemeProvider>
+    </Provider>
   </React.StrictMode>
 );
 
