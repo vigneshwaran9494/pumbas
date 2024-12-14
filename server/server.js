@@ -7,6 +7,7 @@ const {
   getMasterWalletBalance,
   distributeAmount,
   syncWalletBalance,
+  withdrawAmount,
 } = require("./DBModules");
 const app = express();
 const PORT = process.env.PORT || 9090;
@@ -59,7 +60,6 @@ app.get("/api/get-wallet-balance", (req, res) => {
 app.get("/api/get-master-wallet-balance", (req, res) => {
   try {
     getMasterWalletBalance((err, row) => {
-      console.log(row);
       if (err) {
         res.status(500).send(err.message);
       } else {
@@ -72,7 +72,6 @@ app.get("/api/get-master-wallet-balance", (req, res) => {
 });
 
 app.post("/api/distribute-amount", express.json(), (req, res) => {
-  console.log(req.body);
   const { amount, noOfRecipients } = req.body || {};
   if (amount === undefined || noOfRecipients === undefined) {
     res
@@ -84,8 +83,17 @@ app.post("/api/distribute-amount", express.json(), (req, res) => {
     if (err) {
       res.status(500).send(err.message);
     } else {
-      syncWalletBalance();
       res.json({ success: true, message: "Amount distributed successfully" });
+    }
+  });
+});
+
+app.post("/api/withdraw-amount", express.json(), (req, res) => {
+  withdrawAmount((err, rows) => {
+    if (err) {
+      res.status(500).send(err.message);
+    } else {
+      res.json({ success: true, message: "Amount withdrawn successfully" });
     }
   });
 });

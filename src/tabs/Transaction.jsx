@@ -12,28 +12,52 @@ import {
   useGetMasterWalletBalanceQuery,
   useGetWalletQuery,
   useDistributeAmountMutation,
+  useWithdrawAmountMutation,
 } from "../redux/apislice";
 import { ServerIcon } from "@heroicons/react/16/solid";
+import { toast } from "react-toastify";
 
 export default function Transaction() {
   const [distributeAmount, setDistributeAmount] = useState(0);
   const [noOfRecipients, setNoOfRecipients] = useState(0);
 
-  const { data: wallet, isSuccess: isWalletSuccess } = useGetWalletQuery();
+  const { data: wallet, isSuccess: isWalletSuccess } = useGetWalletQuery({
+    refetchOnMountOrArgChange: true,
+  });
 
   const { data: masterWalletBalance, isSuccess: isMasterWalletBalanceSuccess } =
     useGetMasterWalletBalanceQuery();
 
   const [
     callDistributeAmount,
-    { isLoading: isDistributeAmountLoading },
+    {
+      isLoading: isDistributeAmountLoading,
+      isSuccess: isDistributeAmountSuccess,
+    },
   ] = useDistributeAmountMutation();
+
+  const [
+    callWithdrawAmount,
+    { isLoading: isWithdrawAmountLoading, isSuccess: isWithdrawAmountSuccess },
+  ] = useWithdrawAmountMutation();
+
+  if (isDistributeAmountSuccess) {
+    toast.success("Amount distributed successfully");
+  }
+
+  if (isWithdrawAmountSuccess) {
+    toast.success("Amount withdrawn successfully");
+  }
 
   const handleDistribute = () => {
     callDistributeAmount({
       amount: distributeAmount,
       noOfRecipients: noOfRecipients,
     });
+  };
+
+  const handleWithdraw = () => {
+    callWithdrawAmount();
   };
 
   const onDistributeAmountChange = (e) => {
@@ -46,7 +70,7 @@ export default function Transaction() {
 
   return (
     <div className="flex flex-row justify-between text-gray-100">
-      <div className="border-2 flex-1 border-teal-300 h-full rounded-md p-2">
+      <div className="border-2 flex-1 border-teal-300 h-auto rounded-md p-2">
         <div className="flex flex-row justify-evenly border-2 border-teal-300 border-dashed p-2 rounded-md">
           <Typography variant="h5" className="text-gray-300">
             Distribute
@@ -87,6 +111,7 @@ export default function Transaction() {
             {`= ${distributeAmount / noOfRecipients}`}
           </Typography>
           <Button
+            loading={isDistributeAmountLoading}
             className="flex-1 min-w-60"
             color="teal"
             variant="outlined"
@@ -117,8 +142,51 @@ export default function Transaction() {
         </div>
       </div>
 
-      <div className="border-2 flex-1 border-teal-300 h-full rounded-md p-2">
-        withdraw
+      <div className="border-2 flex-1 border-teal-300 h-auto rounded-md p-2">
+        <div className="flex flex-row justify-evenly border-2 flex-grow border-teal-300 border-dashed p-2 rounded-md">
+          <Typography variant="h5" className="text-gray-300">
+            Distribute
+          </Typography>
+
+          <Typography variant="lead" className="text-gray-300">
+            Master Wallet Balance:{" "}
+            {isMasterWalletBalanceSuccess
+              ? masterWalletBalance?.balance
+              : "Loading..."}
+          </Typography>
+        </div>
+
+        <div className="flex flex-row flex-grow justify-evenly mt-3 w-full px-4 gap-2 items-center">
+          <Button
+            loading={isWithdrawAmountLoading}
+            className="flex-1 min-w-60"
+            color="teal"
+            variant="outlined"
+            onClick={handleWithdraw}
+          >
+            Withdraw
+          </Button>
+        </div>
+
+        <div>
+          <List className="text-gray-100">
+            {isWalletSuccess &&
+              wallet
+                ?.filter((item) => item.wallet_type === "slave")
+                .map((item, index) => (
+                  <ListItem>
+                    <ListItemPrefix className="flex flex-row gap-1">
+                      <Typography>{index + 1}/</Typography>
+                      <ServerIcon className="h-5 w-5" />
+                    </ListItemPrefix>
+                    <Typography>{item.address}</Typography>
+                    <ListItemSuffix>
+                      <Typography>{item.balance}</Typography>
+                    </ListItemSuffix>
+                  </ListItem>
+                ))}
+          </List>
+        </div>
       </div>
     </div>
   );

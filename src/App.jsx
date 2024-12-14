@@ -10,6 +10,7 @@ import "./App.css";
 import Wallet from "./tabs/Wallet";
 import Transaction from "./tabs/Transaction";
 import PlayGround from "./tabs/PlayGround";
+import { ToastContainer } from "react-toastify";
 
 const data = [
   {
@@ -49,6 +50,7 @@ function App() {
           ))}
         </TabsBody>
       </Tabs>
+      <ToastContainer />
     </div>
   );
 }

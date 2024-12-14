@@ -33,6 +33,12 @@ export const apiSlice = createApi({
         body: data,
       }),
     }),
+    withdrawAmount: builder.mutation({
+      query: () => ({
+        url: "/api/withdraw-amount",
+        method: "POST",
+      }),
+    }),
   }),
 });
 
@@ -41,4 +47,5 @@ export const {
   useGetWalletBalanceQuery,
   useGetMasterWalletBalanceQuery,
   useDistributeAmountMutation,
+  useWithdrawAmountMutation,
 } = apiSlice;

@@ -2,7 +2,9 @@ import { ArrowPathIcon } from "@heroicons/react/16/solid";
 import { useGetWalletQuery } from "../redux/apislice";
 
 export default function Wallet() {
-  const { data, isLoading, isError, refetch } = useGetWalletQuery();
+  const { data, isLoading, isError, refetch } = useGetWalletQuery({
+    refetchOnMountOrArgChange: true,
+  });
 
   if (isLoading) {
     return <div>Loading...</div>;

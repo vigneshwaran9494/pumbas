@@ -1,6 +1,12 @@
 const sqlite3 = require("sqlite3").verbose();
 const solanaWeb3 = require("@solana/web3.js");
 
+// create a transaction
+const connection = new solanaWeb3.Connection(
+  solanaWeb3.clusterApiUrl("devnet"),
+  "confirmed"
+);
+
 const db = new sqlite3.Database("./database.db", (err) => {
   if (err) {
     console.error("Error opening database " + err.message);
@@ -169,11 +175,6 @@ async function refillWallet(walletId) {
       ? new solanaWeb3.PublicKey(walletId)
       : walletId;
 
-  const connection = new solanaWeb3.Connection(
-    solanaWeb3.clusterApiUrl("devnet"),
-    "confirmed"
-  );
-
   const airdropSignature = await connection.requestAirdrop(
     publicKey,
     solanaWeb3.LAMPORTS_PER_SOL
@@ -195,6 +196,7 @@ async function refillWallet(walletId) {
       if (err) {
         console.error("Error updating wallet balance " + err.message);
       } else {
+        syncWalletBalance();
         console.log("Wallet balance updated successfully");
       }
     }
@@ -220,12 +222,7 @@ function syncWalletBalance() {
     if (err) {
       console.error("Error syncing wallet balance " + err.message);
     } else {
-      console.log(rows);
       rows.forEach(async (row) => {
-        const connection = new solanaWeb3.Connection(
-          solanaWeb3.clusterApiUrl("devnet"),
-          "confirmed"
-        );
         const balance = await connection.getBalance(
           new solanaWeb3.PublicKey(row.publickey)
         );
@@ -236,6 +233,7 @@ function syncWalletBalance() {
           row.publickey,
         ]);
       });
+      console.log("Wallet balance synced successfully");
     }
   });
 }
@@ -272,11 +270,6 @@ async function distributeAmount(amount, noOfRecipients, callback) {
           Promise.all(
             rows.map(async (row) => {
               console.log(row);
-              // create a transaction
-              const connection = new solanaWeb3.Connection(
-                solanaWeb3.clusterApiUrl("devnet"),
-                "confirmed"
-              );
 
               const transaction = new solanaWeb3.Transaction().add(
                 solanaWeb3.SystemProgram.transfer({
@@ -302,18 +295,143 @@ async function distributeAmount(amount, noOfRecipients, callback) {
             })
           )
             .then(() => {
+              syncWalletBalance();
               callback(null, {
                 success: true,
                 message: "All transactions completed successfully",
               });
             })
             .catch((err) => {
+              syncWalletBalance();
               callback(err, null);
             });
         }
       }
     }
   );
+}
+
+const transferEntireBalance = async (senderWallet, recipientPublicKey) => {
+  try {
+    // Get the current balance of the sender wallet
+    const balance = await connection.getBalance(senderWallet.publicKey);
+    if (balance === 0) {
+      console.log("Sender wallet has zero balance.");
+      return;
+    }
+
+    // Get the latest blockhash
+    const { blockhash } = await connection.getLatestBlockhash();
+
+    // Estimate the transaction fee
+    const dummyTransaction = new solanaWeb3.Transaction({
+      recentBlockhash: blockhash,
+      feePayer: senderWallet.publicKey,
+    }).add(
+      solanaWeb3.SystemProgram.transfer({
+        fromPubkey: senderWallet.publicKey,
+        toPubkey: recipientPublicKey,
+        lamports: balance,
+      })
+    );
+
+    const transactionFee = await connection.getFeeForMessage(
+      dummyTransaction.compileMessage({ recentBlockhash: blockhash })
+    );
+
+    // Ensure the sender has enough balance to cover the transaction fee
+    const amountToSend = balance - transactionFee.value || 0;
+    if (amountToSend <= 0) {
+      console.log("Insufficient balance to cover transaction fees.");
+      return;
+    }
+
+    // Create the actual transaction
+    const transaction = new solanaWeb3.Transaction({
+      recentBlockhash: blockhash,
+      feePayer: senderWallet.publicKey,
+    }).add(
+      solanaWeb3.SystemProgram.transfer({
+        fromPubkey: senderWallet.publicKey,
+        toPubkey: recipientPublicKey,
+        lamports: amountToSend,
+      })
+    );
+
+    // Sign the transaction with the sender's private key
+    transaction.sign(senderWallet);
+
+    // Send and confirm the transaction
+    const signature = await solanaWeb3.sendAndConfirmTransaction(
+      connection,
+      transaction,
+      [senderWallet],
+      {
+        commitment: "confirmed",
+      }
+    );
+
+    console.log("Transaction successful, signature:", signature);
+
+    return signature;
+  } catch (error) {
+    console.error("Error during transfer:", error.message, error.stack);
+  }
+};
+
+async function withdrawAmount(callback) {
+  const masterWallet = await new Promise((resolve, reject) => {
+    db.get(
+      "SELECT * FROM solana_wallets WHERE wallet_type = 'master'",
+      (err, row) => {
+        if (err) {
+          reject(err);
+        } else {
+          resolve(row);
+        }
+      }
+    );
+  });
+
+  const slaveWallets = await new Promise((resolve, reject) => {
+    db.all(
+      "SELECT * FROM solana_wallets WHERE wallet_type = 'slave'",
+      [],
+      (err, rows) => {
+        if (err) {
+          reject(err);
+        } else {
+          resolve(rows);
+        }
+      }
+    );
+  });
+
+  Promise.all(
+    slaveWallets.map(async (row) => {
+      console.log(row);
+
+      const signature = await transferEntireBalance(
+        solanaWeb3.Keypair.fromSecretKey(
+          Uint8Array.from(row.privatekey.split(",").map(Number))
+        ),
+        new solanaWeb3.PublicKey(masterWallet.publickey)
+      );
+
+      console.log(signature);
+    })
+  )
+    .then(() => {
+      syncWalletBalance();
+      callback(null, {
+        success: true,
+        message: "All transactions completed successfully",
+      });
+    })
+    .catch((err) => {
+      syncWalletBalance();
+      callback(err, null);
+    });
 }
 
 module.exports = {
@@ -325,4 +443,5 @@ module.exports = {
   getMasterWalletBalance,
   distributeAmount,
   syncWalletBalance,
+  withdrawAmount,
 };
