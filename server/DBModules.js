@@ -9,6 +9,7 @@ const db = new sqlite3.Database("./database.db", (err) => {
     createUserTable();
     createSolanaWalletTable();
     createTransactionTable();
+    syncWalletBalance();
   }
 });
 
@@ -82,10 +83,18 @@ function createDefaultSolanaWallet() {
             await new Promise((resolve, reject) => {
               db.run(
                 `INSERT INTO solana_wallets (address, publickey, privatekey, balance, wallet_type) VALUES (?, ?, ?, ?, ?)`,
-                [wallet.publicKey.toBase58(), wallet.publicKey.toBase58(), wallet.secretKey.toString(), 0, walletType],
+                [
+                  wallet.publicKey.toBase58(),
+                  wallet.publicKey.toBase58(),
+                  wallet.secretKey.toString(),
+                  0,
+                  walletType,
+                ],
                 (err) => {
                   if (err) {
-                    reject("Error inserting default solana wallet " + err.message);
+                    reject(
+                      "Error inserting default solana wallet " + err.message
+                    );
                   } else {
                     console.log("Default solana wallet inserted.");
                     resolve();
@@ -139,8 +148,181 @@ function getAllUsers(callback) {
   });
 }
 
+function getWalletBalance(walletId) {
+  db.get(
+    "SELECT balance FROM solana_wallets WHERE publickey = ?",
+    [walletId],
+    (err, row) => {
+      if (err) {
+        console.error("Error getting wallet balance " + err.message);
+      } else {
+        return row.balance;
+      }
+    }
+  );
+}
+
+async function refillWallet(walletId) {
+  // Ensure walletId is a PublicKey
+  const publicKey =
+    typeof walletId === "string"
+      ? new solanaWeb3.PublicKey(walletId)
+      : walletId;
+
+  const connection = new solanaWeb3.Connection(
+    solanaWeb3.clusterApiUrl("devnet"),
+    "confirmed"
+  );
+
+  const airdropSignature = await connection.requestAirdrop(
+    publicKey,
+    solanaWeb3.LAMPORTS_PER_SOL
+  );
+
+  await connection.confirmTransaction(airdropSignature, {
+    commitment: "confirmed",
+  });
+
+  const walletBalance = await connection.getBalance(publicKey);
+  const bal = walletBalance / solanaWeb3.LAMPORTS_PER_SOL;
+  console.log(bal);
+
+  // Find wallet by public key and update balance
+  db.run(
+    `UPDATE solana_wallets SET balance = ? WHERE publickey = ?`,
+    [bal, publicKey.toBase58()],
+    (err) => {
+      if (err) {
+        console.error("Error updating wallet balance " + err.message);
+      } else {
+        console.log("Wallet balance updated successfully");
+      }
+    }
+  );
+}
+
+function getMasterWalletBalance(callback) {
+  db.get(
+    "SELECT balance FROM solana_wallets WHERE wallet_type = 'master'",
+    [],
+    (err, row) => {
+      if (err) {
+        callback(err, null);
+      } else {
+        callback(null, row);
+      }
+    }
+  );
+}
+
+function syncWalletBalance() {
+  db.all("SELECT * FROM solana_wallets", [], (err, rows) => {
+    if (err) {
+      console.error("Error syncing wallet balance " + err.message);
+    } else {
+      console.log(rows);
+      rows.forEach(async (row) => {
+        const connection = new solanaWeb3.Connection(
+          solanaWeb3.clusterApiUrl("devnet"),
+          "confirmed"
+        );
+        const balance = await connection.getBalance(
+          new solanaWeb3.PublicKey(row.publickey)
+        );
+
+        const bal = balance / solanaWeb3.LAMPORTS_PER_SOL;
+        db.run(`UPDATE solana_wallets SET balance = ? WHERE publickey = ?`, [
+          bal,
+          row.publickey,
+        ]);
+      });
+    }
+  });
+}
+
+async function distributeAmount(amount, noOfRecipients, callback) {
+  const distributeAmount = amount / noOfRecipients;
+
+  const masterWallet = await new Promise((resolve, reject) => {
+    db.get(
+      "SELECT * FROM solana_wallets WHERE wallet_type = 'master'",
+      (err, row) => {
+        if (err) {
+          reject(err);
+        } else {
+          resolve(row);
+        }
+      }
+    );
+  });
+
+  db.all(
+    "SELECT * FROM solana_wallets WHERE wallet_type = 'slave' LIMIT ?",
+    [noOfRecipients],
+    (err, rows) => {
+      if (err) {
+        callback(err, null);
+        return;
+      } else {
+        if (rows.length < noOfRecipients) {
+          callback(new Error("Not enough slave wallets available"), null);
+          return;
+        } else {
+          // Proceed with distribution logic here
+          Promise.all(
+            rows.map(async (row) => {
+              console.log(row);
+              // create a transaction
+              const connection = new solanaWeb3.Connection(
+                solanaWeb3.clusterApiUrl("devnet"),
+                "confirmed"
+              );
+
+              const transaction = new solanaWeb3.Transaction().add(
+                solanaWeb3.SystemProgram.transfer({
+                  fromPubkey: new solanaWeb3.PublicKey(masterWallet.publickey),
+                  toPubkey: new solanaWeb3.PublicKey(row.publickey),
+                  lamports: distributeAmount * solanaWeb3.LAMPORTS_PER_SOL,
+                })
+              );
+
+              const signature = await solanaWeb3.sendAndConfirmTransaction(
+                connection,
+                transaction,
+                [
+                  solanaWeb3.Keypair.fromSecretKey(
+                    Uint8Array.from(
+                      masterWallet.privatekey.split(",").map(Number)
+                    )
+                  ),
+                ]
+              );
+
+              console.log(signature);
+            })
+          )
+            .then(() => {
+              callback(null, {
+                success: true,
+                message: "All transactions completed successfully",
+              });
+            })
+            .catch((err) => {
+              callback(err, null);
+            });
+        }
+      }
+    }
+  );
+}
+
 module.exports = {
   getAllUsers,
   createSolanaWalletTable,
   getAllSolanaWallets,
+  getWalletBalance,
+  refillWallet,
+  getMasterWalletBalance,
+  distributeAmount,
+  syncWalletBalance,
 };

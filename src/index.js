@@ -26,7 +26,7 @@ const theme = {
 root.render(
   <React.StrictMode>
     <Provider store={store}>
-    <ThemeProvider value={theme}>
+    <ThemeProvider>
       <App />
     </ThemeProvider>
     </Provider>
